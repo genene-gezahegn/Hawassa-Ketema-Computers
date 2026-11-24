@@ -1,0 +1,18 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { pool } from '../db.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
+import { HttpError, asyncHandler } from '../utils/errors.js';
+const router=Router();
+const productPhotoSchema=z.union([
+ z.string().url().max(2048).refine(value=>/^https?:\/\//i.test(value),'Image URL must use HTTP or HTTPS.'),
+ z.string().max(5600000).regex(/^data:image\/(?:jpeg|png|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/,'Use a supported raster image under 4 MB.'),
+]).nullable().optional();
+const productSchema=z.object({sku:z.string().trim().min(1).max(80),name:z.string().trim().min(1).max(180),brand:z.string().max(100).optional(),model:z.string().max(120).optional(),category:z.string().max(100).optional(),description:z.string().optional(),specs:z.string().optional(),price:z.coerce.number().min(0),stockQuantity:z.coerce.number().int().min(0),reorderLevel:z.coerce.number().int().min(0).optional(),productPhoto:productPhotoSchema});
+const fields='id,legacy_id AS "legacyId",sku,name,brand,model,category,description,specs,price::float AS price,stock_quantity AS "stockQuantity",reorder_level AS "reorderLevel",product_photo AS "productPhoto",is_active AS "isActive",created_at AS "createdAt"';
+router.get('/',asyncHandler(async(req,res)=>{const q=(req.query.q||'').toString().trim();const category=(req.query.category||'').toString();const {rows}=await pool.query(`SELECT ${fields} FROM products WHERE is_active=true AND ($1='' OR name ILIKE '%'||$1||'%' OR brand ILIKE '%'||$1||'%' OR model ILIKE '%'||$1||'%' OR sku ILIKE '%'||$1||'%') AND ($2='' OR category=$2) ORDER BY created_at DESC`,[q,category]);res.json({products:rows});}));
+router.get('/:id',asyncHandler(async(req,res)=>{const {rows}=await pool.query(`SELECT ${fields} FROM products WHERE id=$1 AND is_active=true`,[req.params.id]);if(!rows[0])throw new HttpError(404,'Product not found.');res.json({product:rows[0]});}));
+router.post('/',authenticate,requireRole('admin'),asyncHandler(async(req,res)=>{const d=productSchema.parse(req.body);const {rows}=await pool.query(`INSERT INTO products(sku,name,brand,model,category,description,specs,price,stock_quantity,reorder_level,product_photo) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${fields}`,[d.sku,d.name,d.brand||'',d.model||'',d.category||'Accessories',d.description||'',d.specs||'',d.price,d.stockQuantity,d.reorderLevel??5,d.productPhoto||null]);res.status(201).json({product:rows[0]});}));
+router.patch('/:id',authenticate,requireRole('admin'),asyncHandler(async(req,res)=>{const d=productSchema.partial().parse(req.body);const map={sku:'sku',name:'name',brand:'brand',model:'model',category:'category',description:'description',specs:'specs',price:'price',stockQuantity:'stock_quantity',reorderLevel:'reorder_level',productPhoto:'product_photo'};const keys=Object.keys(d);if(!keys.length)throw new HttpError(400,'No product fields supplied.');const values=keys.map(k=>d[k]);const set=keys.map((k,i)=>`${map[k]}=$${i+1}`).join(', ');values.push(req.params.id);const {rows}=await pool.query(`UPDATE products SET ${set},updated_at=NOW() WHERE id=$${values.length} AND is_active=true RETURNING ${fields}`,values);if(!rows[0])throw new HttpError(404,'Product not found.');res.json({product:rows[0]});}));
+router.delete('/:id',authenticate,requireRole('admin'),asyncHandler(async(req,res)=>{const result=await pool.query('UPDATE products SET is_active=false,updated_at=NOW() WHERE id=$1 AND is_active=true',[req.params.id]);if(!result.rowCount)throw new HttpError(404,'Product not found.');res.status(204).end();}));
+export default router;

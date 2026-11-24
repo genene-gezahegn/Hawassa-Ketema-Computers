@@ -1,0 +1,28 @@
+{
+  "name": "hawassa-ketema-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "npm run migrate",
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node src/migrate.js",
+    "create-admin": "node src/createAdmin.js",
+    "seed-demo": "node src/seedDemoProducts.js",
+    "test:email:delivery": "node test-email.mjs",
+    "test": "node --test test/deliveryWorkflow.test.js test/customerDeliveryConfirmation.test.js test/deliveryPermissions.test.js test/employeeOrderWorkflow.test.js test/orderMessageAccess.test.js test/paymentReceipt.test.js test/paymentWorkflow.test.js test/email.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.3",
+    "zod": "^4.6.7"
+  }
+}

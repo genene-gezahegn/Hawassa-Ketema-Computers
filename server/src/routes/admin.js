@@ -1,0 +1,9 @@
+import { Router } from 'express';
+import { pool } from '../db.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
+import { asyncHandler, HttpError } from '../utils/errors.js';
+const router=Router();router.use(authenticate,requireRole('admin'));
+router.get('/dashboard',asyncHandler(async(_req,res)=>{const [products,orders,customers,sales,lowStock,staff]=await Promise.all([pool.query('SELECT COUNT(*)::int AS count FROM products WHERE is_active=true'),pool.query("SELECT COUNT(*)::int AS count FROM orders WHERE status NOT IN ('completed','cancelled')"),pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role='customer' AND is_active=true"),pool.query("SELECT COALESCE(SUM(subtotal),0)::float AS total FROM orders WHERE status='completed'"),pool.query('SELECT COUNT(*)::int AS count FROM products WHERE is_active=true AND stock_quantity <= reorder_level'),pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role IN ('employee','delivery_person') AND is_active=true")]);res.json({stats:{products:products.rows[0].count,openOrders:orders.rows[0].count,customers:customers.rows[0].count,completedSales:sales.rows[0].total,lowStock:lowStock.rows[0].count,activeStaff:staff.rows[0].count}});}));
+router.get('/customers',asyncHandler(async(_req,res)=>{const {rows}=await pool.query("SELECT id,full_name AS \"fullName\",email,phone,is_active AS \"isActive\",created_at AS \"createdAt\" FROM users WHERE role='customer' ORDER BY created_at DESC");res.json({customers:rows});}));
+router.patch('/customers/:id/status',asyncHandler(async(req,res)=>{const active=Boolean(req.body.isActive);const {rows}=await pool.query("UPDATE users SET is_active=$1,updated_at=NOW() WHERE id=$2 AND role='customer' RETURNING id,full_name AS \"fullName\",email,is_active AS \"isActive\"",[active,req.params.id]);res.json({customer:rows[0]||null});}));
+export default router;
