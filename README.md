@@ -8,7 +8,7 @@ A full-stack storefront and inventory-management application for a computer reta
 - **Backend:** Node.js (ES modules), Express
 - **Database:** PostgreSQL
 - **Authentication:** bcrypt password hashing + signed JWT access tokens
-- **Authorization:** server-side role-based access control (`admin`, `customer`)
+- **Authorization:** server-side role-based access control (`admin`, `customer`, `employee`, `delivery_person`) with explicit employee delivery permissions
 
 ## Important security behavior
 
@@ -41,7 +41,7 @@ cd server
 npm install
 ```
 
-Copy `.env.example` to `.env` and set a strong `JWT_SECRET`, your PostgreSQL `DATABASE_URL`, and `CLIENT_ORIGIN`. For hosted PostgreSQL such as Neon, set `DATABASE_SSL=true`; this enforces certificate-verified TLS. Configure `RESEND_API_KEY` and `AUTH_EMAIL_FROM` together with a verified sender in Resend to enable password resets and notification emails. Production startup requires both Resend settings and an HTTPS `CLIENT_ORIGIN`. To verify real email delivery, set `RESEND_TEST_TO` to an inbox you control and run `npm run test:email:delivery` from `server`; this sends a real test message. To enable Google sign-in, set `GOOGLE_CLIENT_ID` to a Google OAuth client ID for a web application and add the storefront origin as an authorized JavaScript origin. `CLIENT_URL` may be set to the public storefront URL if it differs from the first `CLIENT_ORIGIN`.
+Copy `.env.example` to `.env` and set a strong `JWT_SECRET`, your PostgreSQL `DATABASE_URL`, and `CLIENT_ORIGIN`. Password recovery by email is not part of this application. Order and delivery notification emails remain optional; the API starts and order workflows continue when SMTP is not configured. To use Gmail SMTP, set `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORT=465`, `EMAIL_SECURE=true`, `EMAIL_USER` to your Gmail address, `EMAIL_APP_PASSWORD` to a Google App Password, and `EMAIL_FROM` to a sender using that same Gmail address. Do not use your regular Gmail password. Render Free blocks outbound SMTP ports 465 and 587, so notifications cannot be delivered from a Free web service. See [Render's free-service limitations](https://render.com/docs/free#other-limitations). To enable Google sign-in, set `GOOGLE_CLIENT_ID` to a Google OAuth client ID for a web application and add the storefront origin as an authorized JavaScript origin.
 
 Run the schema migration:
 
@@ -49,7 +49,7 @@ Run the schema migration:
 npm run migrate
 ```
 
-Create the first administrator. Set these variables in `server/.env` before running the command:
+Create the first administrator and import your existing frontend sample catalog into PostgreSQL. Set these variables in `server/.env` before running the command:
 
 ```env
 ADMIN_NAME=Store Administrator
@@ -59,12 +59,42 @@ ADMIN_PASSWORD=use-a-unique-password-at-least-12-characters
 
 ```bash
 npm run create-admin
+npm run seed-demo
 npm run dev
 ```
 
-Use `npm run seed-demo` only for local/demo databases; do not run it against production unless demo products are deliberately wanted.
-
 API health check: `http://localhost:4000/api/health`.
+
+## Production deployment settings
+
+### Render API
+
+- Root directory: `server`
+- Build command: `npm ci`
+- Start command: `npm start`
+- Health check path: `/api/health`
+- Required environment variables:
+  - `NODE_ENV=production`
+  - `DATABASE_URL` set to the Neon PostgreSQL connection string
+  - `CLIENT_ORIGIN` set to the one HTTPS Vercel storefront origin, with no path or trailing slash
+  - `JWT_SECRET` set to a unique random value of at least 32 characters (never the example value)
+- Set `PORT` only if needed; Render supplies it automatically. Production database connections always use TLS with certificate verification.
+- Set up the database before serving traffic. Run `npm run migrate` from the `server` directory with the production `DATABASE_URL` configured. These migrations are additive/idempotent and do not drop application data. Do not run `seed-demo` against production unless intentionally importing sample products.
+- Optional configuration includes `GOOGLE_CLIENT_ID`, payment account variables, and SMTP settings (`EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_APP_PASSWORD`, `EMAIL_FROM`). For Gmail, use `smtp.gmail.com`, port `465`, secure mode `true`, and a Google App Password. SMTP notifications remain disabled if the required SMTP credentials are absent; no Resend credentials or custom sending domain are required.
+
+Generate a JWT secret locally with Node.js, then copy its output directly into Render's environment settings:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+### Vercel storefront
+
+- Framework preset: Vite
+- Root directory: repository root
+- Build command: `npm run build`
+- Output directory: `dist`
+- Set `VITE_API_URL` at build time to the HTTPS Render API base URL ending in `/api` (for example, `https://your-api.onrender.com/api`). Production builds fail if it is missing or not HTTPS.
 
 ## 3. Start the frontend
 
@@ -74,7 +104,7 @@ In a second terminal, from the project root:
 npm install
 ```
 
-Copy root `.env.example` to `.env` and set `VITE_API_URL=http://localhost:4000/api` for local development. In Vercel, set the production environment variable `VITE_API_URL` to the Render API base URL, for example `https://your-api.onrender.com/api`, then rebuild and redeploy the frontend. Production builds no longer fall back to `localhost:4000`.
+Copy root `.env.example` to `.env` and set `VITE_API_URL=http://localhost:4000/api` if your API runs elsewhere.
 
 ```bash
 npm run dev
@@ -88,8 +118,6 @@ Open `http://localhost:5173`.
 |---|---|---|---|
 | POST | `/api/auth/register` | Public | Register customer |
 | POST | `/api/auth/login` | Public | Sign in |
-| POST | `/api/auth/forgot-password` | Public | Email a one-time password reset link |
-| POST | `/api/auth/reset-password` | Public | Reset password using an unexpired link |
 | GET | `/api/auth/google/config` | Public | Read Google sign-in client configuration |
 | POST | `/api/auth/google` | Public | Verify Google sign-in and create/sign in a customer |
 | GET | `/api/auth/me` | Authenticated | Current account |
@@ -114,17 +142,18 @@ From the project root:
 
 ```bash
 npm test
-npm run test:backend
 npm run build
 ```
 
-`npm test` runs only frontend tests; `npm run test:backend` runs the API's Node test suite separately. For production database updates, run the existing `npm run migrate` command in `server` against the production `DATABASE_URL` before deploying the API. This project uses SQL migrations through that script, not Prisma migrations. Create the production administrator with `npm run create-admin`; do not run demo seed data unless intended.
+Run the API test suite separately from the `server` directory with `npm test`.
 
-The API has its own `server/package.json` and is started separately from Vite. Run `npm run seed-demo` again whenever you want to refresh the database from the bundled sample catalog; existing products are matched by SKU. Run `npm run migrate` after updating the API to add the password-reset token fields to an existing database.
+The API has its own `server/package.json` and is started separately from Vite. Run `npm run seed-demo` again whenever you want to refresh the database from the bundled sample catalog; existing products are matched by SKU. Existing password-reset database columns and migrations are retained unchanged; they are unused by the application.
+
+SMTP settings are optional and used only for best-effort order/delivery notifications on hosts that permit SMTP. The backend does not require SMTP configuration to start. Render Free web services block outbound SMTP ports 465 and 587, so email notifications are unavailable there; ordering, delivery, and payment workflows are unaffected.
 
 ## Production checklist
 
-Before a public launch: use HTTPS, set a strong unique JWT secret, restrict CORS to the deployed frontend origin, use managed PostgreSQL backups, configure the verified reset-email sender and Google OAuth client if those options are offered, configure secure refresh-token rotation or short-lived sessions, add audit logging and request monitoring, and test authorization against every protected endpoint.
+Before a public launch: use HTTPS, set a strong unique JWT secret, restrict CORS to the deployed frontend origin, use managed PostgreSQL backups, configure the Google OAuth client if that option is offered, configure secure refresh-token rotation or short-lived sessions, add audit logging and request monitoring, and test authorization against every protected endpoint.
 
 ## Manual bank transfer payments
 

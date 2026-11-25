@@ -3,7 +3,7 @@ import { ArrowLeft, LockKeyhole, LogIn, UserPlus } from 'lucide-react';
 import { apiRequest, saveSession, ApiUser } from '../lib/api';
 
 type Props = { mode: 'customer' | 'admin'; onBack: () => void; onSuccess: (user: ApiUser) => void };
-type AuthView = 'signin' | 'register' | 'forgot' | 'reset';
+type AuthView = 'signin' | 'register';
 type GoogleState = 'loading' | 'ready' | 'unavailable';
 
 declare global {
@@ -78,18 +78,12 @@ function loadGIS(onReady: () => void, onError: () => void): () => void {
 }
 
 export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
-  const resetParams = new URLSearchParams(window.location.search);
-  const [view, setView] = useState<AuthView>(
-    mode === 'customer' && resetParams.has('resetToken') ? 'reset' : 'signin',
-  );
-  const [resetToken] = useState(resetParams.get('resetToken') || '');
-  const [email, setEmail] = useState(resetParams.get('email') || '');
+  const [view, setView] = useState<AuthView>('signin');
+  const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleState, setGoogleState] = useState<GoogleState>('loading');
@@ -105,12 +99,6 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
    */
   const gisContainerRef = useRef<HTMLDivElement | null>(null);
   const gisReadyRef = useRef(false); // tracks whether GIS script has loaded
-
-  /* ── Clean reset-token param from URL ── */
-  useEffect(() => {
-    if (view === 'reset')
-      window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
-  }, [view]);
 
   /* ── Fetch Google Client ID from the backend config endpoint ── */
   useEffect(() => {
@@ -226,29 +214,8 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
-    setNotice('');
     setBusy(true);
     try {
-      if (view === 'forgot') {
-        const result = await apiRequest<{ message: string }>('/auth/forgot-password', {
-          method: 'POST',
-          body: JSON.stringify({ email }),
-        });
-        setNotice(result.message);
-        return;
-      }
-      if (view === 'reset') {
-        if (password !== confirmPassword) throw new Error('Passwords do not match.');
-        const result = await apiRequest<{ message: string }>('/auth/reset-password', {
-          method: 'POST',
-          body: JSON.stringify({ token: resetToken, password }),
-        });
-        setView('signin');
-        setPassword('');
-        setConfirmPassword('');
-        setNotice(result.message);
-        return;
-      }
       const isRegister = view === 'register' && mode === 'customer';
       const result = await apiRequest<{ token: string; user: ApiUser }>(
         `/auth/${isRegister ? 'register' : 'login'}`,
@@ -274,14 +241,10 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
   const title =
     mode === 'admin' ? 'Administrator sign in'
     : view === 'register' ? 'Create account'
-    : view === 'forgot'   ? 'Forgot password?'
-    : view === 'reset'    ? 'Reset password'
     : 'Sign in';
 
   const description =
     mode === 'admin'    ? 'Authorized store administrators only.'
-    : view === 'forgot' ? 'Enter your email and we will send you a password reset link.'
-    : view === 'reset'  ? 'Choose a new password for your account.'
     : 'Sign in to place orders and manage your purchases.';
 
   const inputClass =
@@ -382,13 +345,11 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
             </label>
           )}
 
-          {view !== 'reset' && (
-            <label className="block text-base font-semibold">
-              Email
-              <input required type="email" autoComplete="email" disabled={busy}
-                value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
-            </label>
-          )}
+          <label className="block text-base font-semibold">
+            Email
+            <input required type="email" autoComplete="email" disabled={busy}
+              value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
+          </label>
 
           {view === 'register' && mode === 'customer' && (
             <label className="block text-base font-semibold">
@@ -398,20 +359,9 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
             </label>
           )}
 
-          {(view === 'signin' || view === 'register' || view === 'reset') && (
+          {(view === 'signin' || view === 'register') && (
             <div className="block text-base font-semibold">
-              <div className="flex items-center justify-between gap-3">
-                <label htmlFor="auth-password">
-                  {view === 'reset' ? 'New password' : 'Password'}
-                </label>
-                {view === 'signin' && mode === 'customer' && (
-                  <button type="button"
-                    onClick={() => { setView('forgot'); setError(''); setNotice(''); }}
-                    className="text-sm font-semibold text-blue-800 hover:underline">
-                    Forgot password?
-                  </button>
-                )}
-              </div>
+              <label htmlFor="auth-password">Password</label>
               <input id="auth-password" required type="password"
                 minLength={view === 'signin' ? 1 : 8}
                 autoComplete={view === 'signin' ? 'current-password' : 'new-password'}
@@ -420,23 +370,9 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
             </div>
           )}
 
-          {view === 'reset' && (
-            <label className="block text-base font-semibold">
-              Confirm new password
-              <input required type="password" minLength={8} autoComplete="new-password"
-                disabled={busy} value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} />
-            </label>
-          )}
-
           {error && (
             <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
-            </p>
-          )}
-          {notice && (
-            <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-              {notice}
             </p>
           )}
 
@@ -444,8 +380,6 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-700 py-4 text-lg font-bold text-white transition hover:bg-red-800 disabled:opacity-60">
             {busy && !googleLoading ? 'Please wait…'
               : view === 'register' ? 'Create account'
-              : view === 'forgot'   ? 'Send reset link'
-              : view === 'reset'    ? 'Reset password'
               : 'Sign in'}
             {!busy && view === 'register' && <UserPlus size={19} />}
             {!busy && view === 'signin'   && <LogIn size={19} />}
@@ -457,26 +391,18 @@ export default function CustomerAuth({ mode, onBack, onSuccess }: Props) {
           <p className="mt-6 text-center text-base text-neutral-700">
             Don&apos;t have an account?{' '}
             <button type="button"
-              onClick={() => { setView('register'); setError(''); setNotice(''); }}
+              onClick={() => { setView('register'); setError(''); }}
               className="font-bold text-red-800 hover:underline">
               Create account
             </button>
           </p>
         )}
 
-        {mode === 'customer' && (view === 'forgot' || view === 'reset') && (
-          <button type="button"
-            onClick={() => { setView('signin'); setError(''); setNotice(''); }}
-            className="mt-5 w-full text-center text-sm font-semibold text-red-800 hover:underline">
-            Back to sign in
-          </button>
-        )}
-
         {mode === 'customer' && view === 'register' && (
           <p className="mt-6 text-center text-base text-neutral-700">
             Already have an account?{' '}
             <button type="button"
-              onClick={() => { setView('signin'); setError(''); setNotice(''); }}
+              onClick={() => { setView('signin'); setError(''); }}
               className="font-bold text-red-800 hover:underline">
               Sign in
             </button>

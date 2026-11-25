@@ -4,10 +4,7 @@ import type { Product } from './inventory';
 const API_URL = (
   import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api' : '')
 ).replace(/\/+$/, '');
-function getApiUrl() {
- if (!API_URL) throw new Error('The production API is not configured. Set VITE_API_URL and redeploy the frontend.');
- return API_URL;
-}
+if (!API_URL) throw new Error('VITE_API_URL must be configured for production.');
 export type ApiUser = { id:string; fullName:string; email:string; phone?:string|null; role:'admin'|'customer'|'employee'|'delivery_person' };
 export class ApiRequestError extends Error {
  constructor(message:string,readonly status:number){super(message);this.name='ApiRequestError';}
@@ -17,8 +14,7 @@ export function saveSession(token:string,user:ApiUser){localStorage.setItem('hk_
 export function clearSession(){localStorage.removeItem('hk_access_token');localStorage.removeItem('hk_user');}
 export async function apiRequest<T>(path:string,options:RequestInit={}):Promise<T>{
  const token=getToken();let response:Response;
- const apiUrl=getApiUrl();
- try{response=await fetch(`${apiUrl}${path}`,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`} : {}),...options.headers}});}
+ try{response=await fetch(`${API_URL}${path}`,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`} : {}),...options.headers}});}
  catch{throw new Error('Unable to connect to the store. Check your internet connection and try again.');}
  if(response.status===204)return undefined as T;const data=await response.json().catch(()=>({message:'Unexpected server response.'}));
  if(!response.ok){
@@ -120,11 +116,11 @@ export async function getCurrentUser(): Promise<ApiUser> {
 }
 
 export async function getPaymentReceiptImage(paymentId:string):Promise<Blob>{
- const response=await fetch(`${getApiUrl()}/payments/admin/${paymentId}/receipt`,{headers:getToken()?{Authorization:`Bearer ${getToken()}`} : {}});
+ const response=await fetch(`${API_URL}/payments/admin/${paymentId}/receipt`,{headers:getToken()?{Authorization:`Bearer ${getToken()}`} : {}});
  if(!response.ok)throw new Error('Unable to open receipt image.');return response.blob();
 }
 export async function getMyPaymentReceipt(orderId:string):Promise<Blob>{
- const response=await fetch(`${getApiUrl()}/payments/orders/${orderId}/receipt`,{headers:getToken()?{Authorization:`Bearer ${getToken()}`} : {}});
+ const response=await fetch(`${API_URL}/payments/orders/${orderId}/receipt`,{headers:getToken()?{Authorization:`Bearer ${getToken()}`} : {}});
  if(!response.ok)throw new Error('Unable to open this order receipt.');return response.blob();
 }
 

@@ -1,77 +1,123 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
 import {
+  getEmailTransport,
   isEmailConfigured,
   sendEmail,
   sendNotificationEmail,
-  validateEmailConfiguration,
 } from '../src/utils/email.js';
 
-const originalApiKey = process.env.RESEND_API_KEY;
-const originalSender = process.env.AUTH_EMAIL_FROM;
-const originalFetch = globalThis.fetch;
+const emailVariables = [
+  'EMAIL_HOST',
+  'EMAIL_PORT',
+  'EMAIL_SECURE',
+  'EMAIL_USER',
+  'EMAIL_APP_PASSWORD',
+  'EMAIL_FROM',
+];
+const originalValues = Object.fromEntries(emailVariables.map((name) => [name, process.env[name]]));
 
 afterEach(() => {
-  if (originalApiKey === undefined) delete process.env.RESEND_API_KEY;
-  else process.env.RESEND_API_KEY = originalApiKey;
-  if (originalSender === undefined) delete process.env.AUTH_EMAIL_FROM;
-  else process.env.AUTH_EMAIL_FROM = originalSender;
-  globalThis.fetch = originalFetch;
+  for (const name of emailVariables) {
+    if (originalValues[name] === undefined) delete process.env[name];
+    else process.env[name] = originalValues[name];
+  }
 });
 
-test('requires Resend API key and sender to be configured together', () => {
-  delete process.env.RESEND_API_KEY;
-  delete process.env.AUTH_EMAIL_FROM;
+test('allows startup without optional SMTP and reports notifications as unconfigured', async () => {
+  for (const name of emailVariables) delete process.env[name];
   assert.equal(isEmailConfigured(), false);
-  assert.doesNotThrow(validateEmailConfiguration);
-
-  process.env.RESEND_API_KEY = 'test-key';
-  assert.throws(validateEmailConfiguration, /must be configured together/);
-});
-
-test('sends email using Resend with the configured sender', async () => {
-  process.env.RESEND_API_KEY = 'test-key';
-  process.env.AUTH_EMAIL_FROM = 'Store <noreply@example.com>';
-  let request;
-  globalThis.fetch = async (url, options) => {
-    request = { url, options };
-    return { ok: true, status: 200 };
-  };
-
-  await sendEmail({
-    to: 'customer@example.com',
-    subject: 'Reset password',
-    html: '<p>Reset link</p>',
-  });
-
-  assert.equal(request.url, 'https://api.resend.com/emails');
-  assert.equal(request.options.headers.Authorization, 'Bearer test-key');
-  assert.deepEqual(JSON.parse(request.options.body), {
-    from: 'Store <noreply@example.com>',
-    to: 'customer@example.com',
-    subject: 'Reset password',
-    html: '<p>Reset link</p>',
-  });
-});
-
-test('surfaces provider errors and preserves notification failure status', async () => {
-  process.env.RESEND_API_KEY = 'test-key';
-  process.env.AUTH_EMAIL_FROM = 'noreply@example.com';
-  globalThis.fetch = async () => ({ ok: false, status: 403 });
-  const originalError = console.error;
-  console.error = () => {};
+  assert.equal(getEmailTransport(), null);
+  const originalWarn = console.warn;
+  console.warn = () => {};
   try {
-    await assert.rejects(sendEmail({
-      to: 'customer@example.com',
-      subject: 'Order update',
-      text: 'Your order was updated.',
-    }), /status 403/);
     assert.equal(await sendNotificationEmail({
       to: 'customer@example.com',
       subject: 'Order update',
       text: 'Your order was updated.',
-    }), 'failed');
+    }), 'not_configured');
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('uses the configured sender for optional notification messages', async () => {
+  process.env.EMAIL_USER = 'mailer@example.com';
+  process.env.EMAIL_FROM = 'Hawassa-Ketema Computers <mailer@example.com>';
+  const sentMessages = [];
+  const mailTransport = {
+    sendMail: async (message) => {
+      sentMessages.push(message);
+      return { messageId: 'test-message-id' };
+    },
+  };
+
+  await sendEmail({
+    to: 'customer@example.com',
+    subject: 'Order update',
+    html: '<p>Your order was updated.</p>',
+  }, mailTransport);
+  assert.equal(await sendNotificationEmail({
+    to: 'customer@example.com',
+    subject: 'Order update',
+    text: 'Your order was updated.',
+  }, mailTransport), 'sent');
+
+  assert.deepEqual(sentMessages, [
+    {
+      from: 'Hawassa-Ketema Computers <mailer@example.com>',
+      to: 'customer@example.com',
+      subject: 'Order update',
+      html: '<p>Your order was updated.</p>',
+    },
+    {
+      from: 'Hawassa-Ketema Computers <mailer@example.com>',
+      to: 'customer@example.com',
+      subject: 'Order update',
+      text: 'Your order was updated.',
+    },
+  ]);
+});
+
+test('logs safe SMTP error details without logging the authentication message', async () => {
+  const originalError = console.error;
+  const loggedValues = [];
+  console.error = (...values) => loggedValues.push(...values);
+  try {
+    const result = await sendNotificationEmail({
+      to: 'customer@example.com',
+      subject: 'Order update',
+      text: 'Your order was updated.',
+    }, {
+      sendMail: async () => {
+        const error = new Error('private authentication details');
+        error.code = 'EAUTH';
+        error.command = 'AUTH PLAIN';
+        throw error;
+      },
+    });
+
+    assert.equal(result, 'failed');
+    assert.equal(loggedValues.includes('EAUTH'), true);
+    assert.equal(loggedValues.includes('AUTH PLAIN'), true);
+    assert.equal(loggedValues.includes('private authentication details'), false);
   } finally {
     console.error = originalError;
   }
+});
+
+test('creates an optional Gmail SMTP transport without making a network connection', () => {
+  process.env.EMAIL_HOST = 'smtp.gmail.com';
+  process.env.EMAIL_PORT = '465';
+  process.env.EMAIL_SECURE = 'true';
+  process.env.EMAIL_USER = 'mailer@gmail.com';
+  process.env.EMAIL_APP_PASSWORD = 'test-only-password';
+  process.env.EMAIL_FROM = 'Hawassa-Ketema Computers <mailer@gmail.com>';
+
+  assert.equal(isEmailConfigured(), true);
+  const transport = getEmailTransport();
+  assert.equal(typeof transport.sendMail, 'function');
+  assert.equal(transport.transporter.options.host, 'smtp.gmail.com');
+  assert.equal(transport.transporter.options.port, 465);
+  assert.equal(transport.transporter.options.secure, true);
 });

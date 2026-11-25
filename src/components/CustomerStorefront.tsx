@@ -31,9 +31,7 @@ import {
 export default function CustomerStorefront() {
   const { products, setProducts, setUserRole, setCurrentUser, setActiveView } = useInventoryStore();
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
-  const [authMode, setAuthMode] = useState<'customer'|'admin'|null>(() =>
-    new URLSearchParams(window.location.search).has('resetToken') ? 'customer' : null
-  );
+  const [authMode, setAuthMode] = useState<'customer'|'admin'|null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [apiCatalog, setApiCatalog] = useState<Product[] | null>(null);
   const [apiCatalogError, setApiCatalogError] = useState('');
@@ -275,7 +273,7 @@ export default function CustomerStorefront() {
         productCount={products.length}
         cartCount={cartCount}
         savedCount={wishlist.length}
-        onEnterDemo={() => { enterDemoStore(); setActiveTab('catalog'); }}
+        onEnterDemo={enterDemoStore}
         onSelectTab={openDemoTab}
         onSelectCategory={openDemoCategory}
         onOpenProduct={openDemoProduct}

@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:backend": "npm --prefix server test",
     "lint": "vite",
     "preview": "vite preview",
     "dev:frontend": "vite"

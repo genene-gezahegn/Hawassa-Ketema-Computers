@@ -83,16 +83,14 @@ describe('customer storefront', () => {
     expect(screen.queryByRole('button', { name: 'Copy Telebirr bank' })).toBeNull();
   });
 
-  it('opens customer sign-in and supports account creation and password recovery', async () => {
+  it('opens customer sign-in, hides password recovery, and supports account creation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const response = url.includes('/auth/google/config')
         ? { clientId: null }
-        : url.includes('/auth/forgot-password')
-          ? { message: 'If an active customer account exists for that email, a password reset link has been sent.' }
-          : url.includes('/products')
-            ? { products: [] }
-            : {};
+        : url.includes('/products')
+          ? { products: [] }
+          : {};
       return { ok: true, status: 200, json: async () => response } as Response;
     }));
     const user = userEvent.setup();
@@ -101,15 +99,7 @@ describe('customer storefront', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy();
     expect(screen.queryByText('Staff sign in')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Forgot password?' })).toBeTruthy();
-    expect(screen.getByText('or sign in with email')).toBeTruthy();
-
-    await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
-    await user.type(screen.getByLabelText('Email'), 'customer@example.com');
-    await user.click(screen.getByRole('button', { name: 'Send reset link' }));
-    expect((await screen.findByRole('status')).textContent).toContain('password reset link has been sent');
-
-    await user.click(screen.getByRole('button', { name: 'Back to sign in' }));
+    expect(screen.queryByRole('button', { name: 'Forgot password?' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     expect(screen.getByRole('heading', { name: 'Create account' })).toBeTruthy();
     expect(screen.getByLabelText('Full name')).toBeTruthy();
@@ -137,7 +127,7 @@ describe('customer storefront', () => {
     await user.type(screen.getByLabelText('Password'), 'admin-password');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByRole('button', { name: 'Sign out of administrator account' })).toBeTruthy();
+    expect(await screen.findByTitle('Sign out of administrator account')).toBeTruthy();
     expect(useInventoryStore.getState().currentUserRole).toBe('Admin');
     expect(useInventoryStore.getState().currentUser).toContain('Store Admin');
   });
@@ -203,6 +193,8 @@ describe('customer storefront', () => {
     render(<CustomerStorefront />);
 
     await user.click(screen.getByRole('button', { name: 'Enter storefront demo' }));
+    expect(screen.getByRole('heading', { name: 'Welcome back, Demo' })).toBeTruthy();
+    await user.click(screen.getAllByRole('button', { name: /Browse catalog/i })[0]);
     expect(screen.getByRole('heading', { name: 'Find your next upgrade' })).toBeTruthy();
 
     await user.click(screen.getAllByRole('button', { name: 'Add to cart' })[0]);

@@ -384,7 +384,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <button type="button" onClick={() => { clearSession(); setUserRole('Customer'); setCurrentUser('Guest'); }} className="ml-1 rounded-lg bg-white/10 hover:bg-white/20 px-2.5 py-2 text-xs font-bold text-white" title="Sign out of administrator account" aria-label="Sign out of administrator account">Sign out</button>
+              <button type="button" onClick={() => { clearSession(); setUserRole('Customer'); setCurrentUser('Guest'); }} className="ml-1 rounded-lg bg-white/10 hover:bg-white/20 px-2.5 py-2 text-xs font-bold text-white" title="Sign out of administrator account">Sign out</button>
             </div>
           </div>
 
